@@ -1,6 +1,7 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wextra-semi"
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#pragma GCC diagnostic ignored "-Wgcc-compat"
 #include "Eigen/Core"
 #include "Eigen/SparseCore"
 #include "ortools/base/init_google.h"
@@ -76,7 +77,6 @@ SCIP_RETCODE SCIPlpiSetIntegralityInformation(
 {
    assert( lpi != NULL );
    assert( lpi->linear_program != NULL );
-   assert( ncols == 0 || ncols == lpi->linear_program->num_variables().value() );
 
    return SCIP_OKAY;
 }
@@ -124,27 +124,7 @@ SCIP_RETCODE SCIPlpiCreate(
    (*lpi)->lp_modified_since_last_solve = TRUE;
    (*lpi)->objsen = SCIP_OBJSEN_MINIMIZE;
 
-//    /* Set problem name and objective direction. */
-//    (*lpi)->linear_program->problem_name = std::make_optional(std::string(name));
-//    // Note: probably use ApplyObjectiveScalingAndOffset here
-//    SCIP_CALL( SCIPlpiChgObjsen(*lpi, objsen) );
-
-//    (*lpi)->from_scratch = false;
-//    (*lpi)->lp_info = false;
-//    (*lpi)->pricing = SCIP_PRICING_LPIDEFAULT;
-//    (*lpi)->lp_modified_since_last_solve = true;
-//    (*lpi)->lp_time_limit_was_reached = false;
-//    (*lpi)->conditionlimit = -1.0;
-//    (*lpi)->checkcondition = false;
-//    (*lpi)->niterations = 0LL;
-
-//    (*lpi)->tmp_row = new ScatteredRow();
-//    (*lpi)->tmp_column = new ScatteredColumn();
-
-// looks like NOSCALING is an option
-// #ifdef NOSCALING
-//    (*lpi)->parameters->set_use_scaling(false);
-// #endif
+   SCIP_CALL( SCIPlpiChgObjsen(*lpi, objsen) );
 
    return SCIP_OKAY;
 }
@@ -226,6 +206,12 @@ SCIP_RETCODE SCIPlpiAddCols(
 
    SCIPdebugMessage("adding %d columns with %d nonzeros.\n", ncols, nnonz);
 
+   size_t original_num_cols = lpi->linear_program->constraint_matrix.cols();
+
+   lpi->linear_program->constraint_matrix.conservativeResize(
+      lpi->linear_program->constraint_matrix.rows(),
+      lpi->linear_program->constraint_matrix.cols() + ncols);
+
    /* @todo add names */
    if ( nnonz > 0 )
    {
@@ -236,7 +222,7 @@ SCIP_RETCODE SCIPlpiAddCols(
 
 #ifndef NDEBUG
       /* perform check that no new rows are added */
-      size_t num_rows = lpi->linear_program->constraint_matrix.nrows();
+      size_t num_rows = lpi->linear_program->constraint_matrix.rows();
       for (int j = 0; j < nnonz; ++j)
       {
          assert( 0 <= ind[j] && ind[j] < num_rows );
@@ -244,29 +230,317 @@ SCIP_RETCODE SCIPlpiAddCols(
       }
 #endif
 
-      int nz = 0;
-      for (int i = 0; i < ncols; ++i)
+   assert(beg[0] == 0);
+
+   int nz = 0;
+   for (int i = 0; i < ncols; ++i)
+   {
+      const int col = original_num_cols + i;
+      const int end = (nnonz == 0 || i == ncols - 1) ? nnonz : beg[i + 1];
+      while ( nz < end )
       {
-         const int end = (nnonz == 0 || i == ncols - 1) ? nnonz : beg[i + 1];
-         while ( nz < end )
-         {
-            // lpi->linear_program->constraint_matrix.
-            // https://stackoverflow.com/a/41777589
-            // lpi->linear_program->SetCoefficient(RowIndex(ind[nz]), col, val[nz]);
-            ++nz;
-         }
+         const SCIP_Real value = val[nz];
+         lpi->linear_program->constraint_matrix.insert(ind[nz], col) = value;
+         ++nz;
       }
-      assert( nz == nnonz );
+   }
+   assert( nz == nnonz );
+      
    }
 
-   Eigen::VectorXd new_obj = Eigen::Map<const Eigen::VectorXd, Eigen::Unaligned>(obj, ncols);
-   Eigen::VectorXd new_variable_lower_bounds = Eigen::Map<const Eigen::VectorXd, Eigen::Unaligned>(lb, ncols); 
-   Eigen::VectorXd new_variable_upper_bounds = Eigen::Map<const Eigen::VectorXd, Eigen::Unaligned>(ub, ncols);
+   
+   
+
+   {
+   Eigen::VectorXd new_obj(lpi->linear_program->objective_vector.size() + ncols);
+   if (lpi->objsen == SCIP_OBJSEN_MINIMIZE)
+   {
+   new_obj << lpi->linear_program->objective_vector, Eigen::Map<const Eigen::VectorXd, Eigen::Unaligned>(obj, ncols);
+   }
+   else
+   {
+      new_obj << lpi->linear_program->objective_vector, -Eigen::Map<const Eigen::VectorXd, Eigen::Unaligned>(obj, ncols);
+   }
+   lpi->linear_program->objective_vector = std::move(new_obj);
+   }
+
+   {
+   Eigen::VectorXd new_variable_lower_bounds(lpi->linear_program->variable_lower_bounds.size() + ncols);
+   new_variable_lower_bounds << lpi->linear_program->variable_lower_bounds, Eigen::Map<const Eigen::VectorXd, Eigen::Unaligned>(lb, ncols);
+   lpi->linear_program->variable_lower_bounds = std::move(new_variable_lower_bounds);
+   }
+
+   {
+   Eigen::VectorXd new_variable_upper_bounds(lpi->linear_program->variable_upper_bounds.size() + ncols);
+   new_variable_upper_bounds << lpi->linear_program->variable_upper_bounds, Eigen::Map<const Eigen::VectorXd, Eigen::Unaligned>(ub, ncols);
+   lpi->linear_program->variable_upper_bounds = std::move(new_variable_upper_bounds);
+   }
+
+
    lpi->lp_modified_since_last_solve = true;
 
    return SCIP_OKAY;
 }
 
+namespace {
+void delete_range(Eigen::VectorXd* v_ptr, size_t start_inclusive, size_t end_inclusive)
+{
+   Eigen::VectorXd& v = *v_ptr;
+   size_t num_to_delete = end_inclusive - start_inclusive + 1;
+   Eigen::VectorXd new_v(v.size() - num_to_delete);
+   new_v << v(Eigen::seq(0, start_inclusive)), v(Eigen::seq(end_inclusive + 1, new_v.size()));
+   v = std::move(new_v);
+}
+
+}
+
+/** deletes all columns in the given range from LP */
+SCIP_RETCODE SCIPlpiDelCols(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   int                   firstcol,           /**< first column to be deleted */
+   int                   lastcol             /**< last column to be deleted */
+   )
+{
+   assert( lpi != NULL );
+   assert( lpi->linear_program != NULL );
+
+   SCIPdebugMessage("deleting columns %d to %d.\n", firstcol, lastcol);
+
+   delete_range(&lpi->linear_program->variable_upper_bounds, firstcol, lastcol);
+   delete_range(&lpi->linear_program->variable_lower_bounds, firstcol, lastcol);
+   delete_range(&lpi->linear_program->objective_vector, firstcol, lastcol);
+
+   lpi->linear_program->constraint_matrix.prune([firstcol, lastcol](const Eigen::Index&, const Eigen::Index& col, SCIP_Real) { return !(firstcol <= col <= lastcol); });
+
+   lpi->lp_modified_since_last_solve = true;
+
+   return SCIP_OKAY;
+}
+
+typedef Eigen::Vector<bool,Eigen::Dynamic> VectorXb;
+
+class Logical
+{
+private:
+   const Eigen::Index new_size;
+   Eigen::Vector<Eigen::Index, Eigen::Dynamic> old_inds;
+
+public:
+   Logical(const Eigen::Vector<bool, Eigen::Dynamic> &keep) : new_size(keep.count()), old_inds(new_size)
+    {
+       for (Eigen::Index i = 0, j = 0; i < keep.size(); i++)
+            if (keep(i))
+                old_inds(j++) = i;
+    }
+    Eigen::Index size() const { return new_size; }
+    Eigen::Index operator[](Eigen::Index new_ind) const { return old_inds(new_ind); }
+};
+
+
+/** deletes columns from SCIP_LP; the new position of a column must not be greater that its old position */
+SCIP_RETCODE SCIPlpiDelColset(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   int*                  dstat               /**< deletion status of columns
+                                              *   input:  1 if column should be deleted, 0 if not
+                                              *   output: new position of column, -1 if column was deleted */
+   )
+{
+   assert( lpi != NULL );
+   assert( lpi->linear_program != NULL );
+   assert( dstat != NULL );
+
+   size_t num_cols = lpi->linear_program->objective_vector.size();
+
+   Eigen::Map<const Eigen::VectorXi, Eigen::Unaligned> to_delete(dstat, num_cols);
+   // I don't trust Eigen to define inverse correctly for booleans...
+   // VectorXb to_keep = to_delete.cast<bool>().cwiseInverse();
+   VectorXb to_keep(to_delete.size());
+   for (Eigen::Index i = 0; i < to_delete.size(); ++i)
+   {
+      to_keep(i) = !to_delete(i);
+   }
+
+   Logical log_ind(to_keep);
+
+   lpi->linear_program->variable_upper_bounds = lpi->linear_program->variable_upper_bounds(log_ind);
+   lpi->linear_program->variable_lower_bounds = lpi->linear_program->variable_lower_bounds(log_ind);
+   lpi->linear_program->objective_vector = lpi->linear_program->objective_vector(log_ind);
+
+   lpi->linear_program->constraint_matrix.prune([dstat](const Eigen::Index&, const Eigen::Index& col, SCIP_Real) { return !(dstat[col] == 1); });
+
+   int new_index = 0;
+   int num_deleted_columns = 0;
+   for (size_t col = 0; col < num_cols; ++col)
+   {
+      if ( dstat[col] == 1 )
+      {
+         dstat[col] = -1;
+         ++num_deleted_columns;
+      }
+      else
+      {
+         dstat[col] = new_index++;
+      }
+   }
+   SCIPdebugMessage("SCIPlpiDelColset: deleting %d columns.\n", num_deleted_columns);
+
+   lpi->lp_modified_since_last_solve = true;
+
+   return SCIP_OKAY;
+}
+
+
+/** adds rows to the LP */
+SCIP_RETCODE SCIPlpiAddRows(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   int                   nrows,              /**< number of rows to be added */
+   const SCIP_Real*      lhs,                /**< left hand sides of new rows */
+   const SCIP_Real*      rhs,                /**< right hand sides of new rows */
+   char**                rownames,           /**< row names, or NULL */
+   int                   nnonz,              /**< number of nonzero elements to be added to the constraint matrix */
+   const int*            beg,                /**< start index of each row in ind- and val-array, or NULL if nnonz == 0 */
+   const int*            ind,                /**< column indices of constraint matrix entries, or NULL if nnonz == 0 */
+   const SCIP_Real*      val                 /**< values of constraint matrix entries, or NULL if nnonz == 0 */
+   )
+{
+   assert( lpi != NULL );
+   assert( lpi->linear_program != NULL );
+   assert( lhs != NULL );
+   assert( rhs != NULL );
+   assert( nnonz >= 0) ;
+   assert( nrows >= 0) ;
+
+   SCIPdebugMessage("adding %d rows with %d nonzeros.\n", nrows, nnonz);
+
+   size_t original_num_rows = lpi->linear_program->constraint_matrix.rows();
+
+   lpi->linear_program->constraint_matrix.conservativeResize(
+      lpi->linear_program->constraint_matrix.rows() + nrows,
+      lpi->linear_program->constraint_matrix.cols());
+   
+   if (nnonz > 0) {
+   /* @todo add names */
+   assert( beg != NULL );
+   assert( ind != NULL );
+   assert( val != NULL );
+   assert( nrows > 0 );
+
+#ifndef NDEBUG
+   /* perform check that no new columns are added - this is likely to be a mistake */
+   const size_t num_cols = lpi->linear_program->constraint_matrix.cols();
+   for (int j = 0; j < nnonz; ++j)
+   {
+      assert( val[j] != 0.0 );
+      assert( 0 <= ind[j] && ind[j] < num_cols );
+   }
+#endif
+
+   assert(beg[0] == 0);
+
+   int nz = 0;
+   for (int i = 0; i < nrows; ++i)
+   {
+      const int row = original_num_rows + i;
+      const int end = (nnonz == 0 || i == nrows - 1) ? nnonz : beg[i + 1];
+      while ( nz < end )
+      {
+         const SCIP_Real value = val[nz];
+         lpi->linear_program->constraint_matrix.insert(row, ind[nz]) = value;
+         ++nz;
+      }
+   }
+   assert( nz == nnonz );
+   }
+
+   {
+   Eigen::VectorXd new_lhs(lpi->linear_program->constraint_lower_bounds.size() + nrows);
+   new_lhs << lpi->linear_program->constraint_lower_bounds, Eigen::Map<const Eigen::VectorXd, Eigen::Unaligned>(lhs, nrows);
+   lpi->linear_program->constraint_lower_bounds = std::move(new_lhs);
+   }
+
+   {
+   Eigen::VectorXd new_rhs(lpi->linear_program->constraint_upper_bounds.size() + nrows);
+   new_rhs << lpi->linear_program->constraint_upper_bounds, Eigen::Map<const Eigen::VectorXd, Eigen::Unaligned>(rhs, nrows);
+   lpi->linear_program->constraint_upper_bounds = std::move(new_rhs);
+   }
+
+   lpi->lp_modified_since_last_solve = true;
+
+   return SCIP_OKAY;
+}
+
+/** deletes all rows in the given range from LP */
+SCIP_RETCODE SCIPlpiDelRows(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   int                   firstrow,           /**< first row to be deleted */
+   int                   lastrow             /**< last row to be deleted */
+   )
+{
+   assert( lpi != NULL );
+   assert( lpi->linear_program != NULL );
+   assert( 0 <= firstrow && firstrow <= lastrow && lastrow < lpi->linear_program->constraint_lower_bounds.size() );
+
+   delete_range(&lpi->linear_program->constraint_upper_bounds, firstrow, lastrow);
+   delete_range(&lpi->linear_program->constraint_lower_bounds, firstrow, lastrow);
+
+   lpi->linear_program->constraint_matrix.prune([firstrow, lastrow](const Eigen::Index& row, const Eigen::Index&, SCIP_Real) { return !(firstrow <= row <= lastrow); });
+
+   lpi->lp_modified_since_last_solve = true;
+
+   return SCIP_OKAY;
+}
+
+/** deletes rows from SCIP_LP; the new position of a row must not be greater that its old position */
+SCIP_RETCODE SCIPlpiDelRowset(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   int*                  dstat               /**< deletion status of rows
+                                              *   input:  1 if row should be deleted, 0 if not
+                                              *   output: new position of row, -1 if row was deleted */
+   )
+{
+   assert( lpi != NULL );
+   assert( lpi->linear_program != NULL );
+   assert( dstat != NULL );
+
+   size_t num_rows = lpi->linear_program->constraint_matrix.rows();
+
+   Eigen::Map<const Eigen::VectorXi, Eigen::Unaligned> to_delete(dstat, num_rows);
+   // I don't trust Eigen to define inverse correctly for booleans...
+   // VectorXb to_keep = to_delete.cast<bool>().cwiseInverse();
+   VectorXb to_keep(to_delete.size());
+   for (Eigen::Index i = 0; i < to_delete.size(); ++i)
+   {
+      to_keep(i) = !to_delete(i);
+   }
+
+   Logical log_ind(to_keep);
+
+   lpi->linear_program->constraint_upper_bounds = lpi->linear_program->constraint_upper_bounds(log_ind);
+   lpi->linear_program->constraint_lower_bounds = lpi->linear_program->constraint_lower_bounds(log_ind);
+
+   lpi->linear_program->constraint_matrix.prune([dstat](const Eigen::Index& row, const Eigen::Index&, SCIP_Real) { return !(dstat[row] == 1); });
+
+
+   int new_index = 0;
+   int num_deleted_rows = 0;
+   for (size_t row = 0; row < num_rows; ++row)
+   {
+      if ( dstat[row] == 1 )
+      {
+         dstat[row] = -1;
+         ++num_deleted_rows;
+      }
+      else
+      {
+         dstat[row] = new_index++;
+      }
+   }
+   SCIPdebugMessage("SCIPlpiDelRowset: deleting %d rows.\n", num_deleted_rows);
+
+   lpi->lp_modified_since_last_solve = true;
+
+   return SCIP_OKAY;
+}
 
 SCIP_RETCODE SCIPlpiClear(
    SCIP_LPI*             lpi                 /**< LP interface structure */
@@ -348,7 +622,7 @@ SCIP_RETCODE SCIPlpiChgObjsen(
       {
          lpi->linear_program->objective_vector(i) = -lpi->linear_program->objective_vector(i);
       }
-      if (lpi->objsen == SCIP_OBJSEN_MAXIMIZE) {
+      if (objsen == SCIP_OBJSEN_MAXIMIZE) {
          assert(lpi->objsen == SCIP_OBJSEN_MINIMIZE);
          lpi->objsen = SCIP_OBJSEN_MAXIMIZE;
       } else {
@@ -370,7 +644,14 @@ SCIP_RETCODE SCIPlpiChgObj(
 {
    for(int i = 0; i < ncols; ++i) {
       int col_idx = ind[i];
-      lpi->linear_program->objective_vector(col_idx) = obj[i];
+      if (lpi->objsen == SCIP_OBJSEN_MINIMIZE)
+      {
+         lpi->linear_program->objective_vector(col_idx) = obj[i];
+      }
+      else
+      {
+         lpi->linear_program->objective_vector(col_idx) = -obj[i];
+      }
    }
 
    return SCIP_OKAY;
@@ -516,8 +797,39 @@ SCIP_RETCODE SCIPlpiGetRows(
    SCIP_Real*            val                 /**< buffer to store values of constraint matrix entries, or NULL */
    )
 {
+
+   if (lhs != nullptr && rhs != nullptr)
+   {
+      for(int i = firstrow; i <= lastrow; ++i)
+      {
+         lhs[i-firstrow] = lpi->linear_program->constraint_lower_bounds(i);
+         rhs[i-firstrow] = lpi->linear_program->constraint_upper_bounds(i);
+      }
+   }
+
+   if (nnonz != nullptr && beg != nullptr && ind != nullptr && val != nullptr)
+   {
+      *nnonz = 0;
+      Eigen::Index ncols = lpi->linear_program->constraint_matrix.cols();
+      for (int i = firstrow; i <= lastrow; ++i)
+      {
+         beg[i - firstrow] = *nnonz;
+         int column_ctr = 0;
+         for (int j = 0; j < ncols; ++j)
+         {
+            SCIP_Real value = lpi->linear_program->constraint_matrix.coeff(i, j);
+            if (value != 0.0) {
+               ind[beg[i-firstrow] + column_ctr] = j;
+               val[beg[i-firstrow] + column_ctr] = value;
+               ++column_ctr;
+               ++*nnonz;
+            }
+         }
+      }
+   }
+
    assert(false);
-   return SCIP_NOTIMPLEMENTED;
+   return SCIP_OKAY;
 }
 
 /** gets column names */
@@ -538,7 +850,6 @@ SCIP_RETCODE SCIPlpiGetColNames(
    assert( namestorage != NULL || namestoragesize == 0 );
    assert( namestoragesize >= 0 );
    assert( storageleft != NULL );
-   assert( 0 <= firstcol && firstcol <= lastcol && lastcol < lpi->linear_program->num_variables() );
 
    SCIPerrorMessage("SCIPlpiGetColNames() has not been implemented yet.\n");
 
@@ -564,7 +875,6 @@ SCIP_RETCODE SCIPlpiGetRowNames(
    assert( namestorage != NULL || namestoragesize == 0 );
    assert( namestoragesize >= 0 );
    assert( storageleft != NULL );
-   assert( 0 <= firstrow && firstrow <= lastrow && lastrow < lpi->linear_program->num_constraints() );
 
    SCIPerrorMessage("SCIPlpiGetRowNames() has not been implemented yet.\n");
 
@@ -617,10 +927,10 @@ SCIP_RETCODE SCIPlpiGetBounds(
    for (int col = firstcol; col <= lastcol; ++col)
    {
       if ( lbs != NULL )
-         lbs[index] = lpi->linear_program->constraint_lower_bounds(col);
+         lbs[index] = lpi->linear_program->variable_lower_bounds(col);
 
       if ( ubs != NULL )
-         ubs[index] = lpi->linear_program->constraint_upper_bounds(col);
+         ubs[index] = lpi->linear_program->variable_upper_bounds(col);
 
       ++index;
    }
@@ -691,12 +1001,30 @@ SCIP_RETCODE SCIPlpiGetState(
    return SCIP_OKAY;
 }
 
+/** calls primal simplex to solve the LP */
+SCIP_RETCODE SCIPlpiSolvePrimal(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   return SCIP_NOTIMPLEMENTED;
+}
+
+/** calls dual simplex to solve the LP */
+SCIP_RETCODE SCIPlpiSolveDual(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   return SCIP_NOTIMPLEMENTED;
+}
+
+
 SCIP_EXPORT
 SCIP_RETCODE SCIPlpiSolveBarrier(
    SCIP_LPI*             lpi,                /**< LP interface structure */
    SCIP_Bool             crossover           /**< perform crossover */
    ) {
    *lpi->result = pdlp::PrimalDualHybridGradient(*lpi->linear_program, *lpi->parameters);
+   lpi->lp_modified_since_last_solve = false;
    assert(!crossover);
    return SCIP_OKAY;
 }
@@ -725,6 +1053,33 @@ SCIP_RETCODE SCIPlpiEndStrongbranch(
    return SCIP_OKAY;
 }
 
+/** performs strong branching iterations on one @b fractional candidate */
+SCIP_RETCODE SCIPlpiStrongbranchFrac(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   int                   col_index,          /**< column to apply strong branching on */
+   SCIP_Real             psol,               /**< fractional current primal solution value of column */
+   int                   itlim,              /**< iteration limit for strong branchings */
+   SCIP_Real*            down,               /**< stores dual bound after branching column down */
+   SCIP_Real*            up,                 /**< stores dual bound after branching column up */
+   SCIP_Bool*            downvalid,          /**< stores whether the returned down value is a valid dual bound;
+                                              *   otherwise, it can only be used as an estimate value */
+   SCIP_Bool*            upvalid,            /**< stores whether the returned up value is a valid dual bound;
+                                              *   otherwise, it can only be used as an estimate value */
+   int*                  iter                /**< stores total number of strong branching iterations, or -1; may be NULL */
+   )
+{
+   assert( lpi != NULL );
+   assert( down != NULL );
+   assert( up != NULL );
+   assert( downvalid != NULL );
+   assert( upvalid != NULL );
+
+   SCIPdebugMessage("calling strongbranching on fractional variable %d (%d iterations)\n", col_index, itlim);
+
+   // SCIP_CALL( strongbranch(lpi, col_index, psol, itlim, down, up, downvalid, upvalid, iter) );
+
+   return SCIP_NOTIMPLEMENTED;
+}
 
 
 /** performs strong branching iterations on given @b fractional candidates */
@@ -757,6 +1112,32 @@ SCIP_RETCODE SCIPlpiStrongbranchesFrac(
    return SCIP_NOTIMPLEMENTED;
 }
 
+/** performs strong branching iterations on one candidate with @b integral value */
+SCIP_RETCODE SCIPlpiStrongbranchInt(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   int                   col,                /**< column to apply strong branching on */
+   SCIP_Real             psol,               /**< current integral primal solution value of column */
+   int                   itlim,              /**< iteration limit for strong branchings */
+   SCIP_Real*            down,               /**< stores dual bound after branching column down */
+   SCIP_Real*            up,                 /**< stores dual bound after branching column up */
+   SCIP_Bool*            downvalid,          /**< stores whether the returned down value is a valid dual bound;
+                                              *   otherwise, it can only be used as an estimate value */
+   SCIP_Bool*            upvalid,            /**< stores whether the returned up value is a valid dual bound;
+                                              *   otherwise, it can only be used as an estimate value */
+   int*                  iter                /**< stores total number of strong branching iterations, or -1; may be NULL */
+   )
+{
+   assert( lpi != NULL );
+   assert( lpi->linear_program != NULL );
+   assert( down != NULL );
+   assert( up != NULL );
+   assert( downvalid != NULL );
+   assert( upvalid != NULL );
+
+   // SCIP_CALL( strongbranch(lpi, col, psol, itlim, down, up, downvalid, upvalid, iter) );
+
+   return SCIP_NOTIMPLEMENTED;
+}
 /** performs strong branching iterations on given candidates with @b integral values */
 SCIP_RETCODE SCIPlpiStrongbranchesInt(
    SCIP_LPI*             lpi,                /**< LP interface structure */
@@ -797,8 +1178,177 @@ SCIP_Bool SCIPlpiWasSolved(
    return ( ! lpi->lp_modified_since_last_solve );
 }
 
+/** gets information about primal and dual feasibility of the current LP solution
+ *
+ *  The feasibility information is with respect to the last solving call and it is only relevant if SCIPlpiWasSolved()
+ *  returns true. If the LP is changed, this information might be invalidated.
+ *
+ *  Note that @a primalfeasible and @a dualfeasible should only return true if the solver has proved the respective LP to
+ *  be feasible. Thus, the return values should be equal to the values of SCIPlpiIsPrimalFeasible() and
+ *  SCIPlpiIsDualFeasible(), respectively. Note that if feasibility cannot be proved, they should return false (even if
+ *  the problem might actually be feasible).
+ */
+SCIP_RETCODE SCIPlpiGetSolFeasibility(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   SCIP_Bool*            primalfeasible,     /**< pointer to store primal feasibility status */
+   SCIP_Bool*            dualfeasible        /**< pointer to store dual feasibility status */
+   )
+{
+   assert( lpi != NULL );
+   assert( primalfeasible != NULL );
+   assert( dualfeasible != NULL );
+
+   *primalfeasible = SCIPlpiIsPrimalFeasible(lpi);
+   *dualfeasible = SCIPlpiIsDualFeasible(lpi);
+
+   SCIPdebugMessage("SCIPlpiGetSolFeasibility primal:%u dual:%u\n", *primalfeasible, *dualfeasible);
+
+   return SCIP_OKAY;
+}
+
+
+/** returns TRUE iff LP is proven to have a primal unbounded ray (but not necessary a primal feasible point);
+ *  this does not necessarily mean, that the solver knows and can return the primal ray
+ */
+SCIP_Bool SCIPlpiExistsPrimalRay(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   assert( lpi != NULL );
+
+   return FALSE;
+}
+
+/** returns TRUE iff LP is proven to have a primal unbounded ray (but not necessary a primal feasible point),
+ *  and the solver knows and can return the primal ray
+ */
+SCIP_Bool SCIPlpiHasPrimalRay(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   assert( lpi != NULL );
+
+   return FALSE;
+}
+
+/** returns TRUE iff LP is proven to be primal feasible */
+SCIP_Bool SCIPlpiIsPrimalFeasible(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   assert( lpi != NULL );
+
+   return lpi->result->solve_log.termination_reason() != pdlp::TERMINATION_REASON_PRIMAL_INFEASIBLE &&
+      lpi->result->solve_log.termination_reason() != pdlp::TERMINATION_REASON_PRIMAL_OR_DUAL_INFEASIBLE;
+      
+}
+
+
+/** returns TRUE iff LP is proven to be primal unbounded */
+SCIP_Bool SCIPlpiIsPrimalUnbounded(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   assert( lpi != NULL );
+
+   return FALSE;
+}
+
+/** returns TRUE iff LP is proven to be primal infeasible */
+SCIP_Bool SCIPlpiIsPrimalInfeasible(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   assert( lpi != NULL );
+
+   return ! SCIPlpiIsPrimalFeasible(lpi);
+}
+
+/** returns TRUE iff LP is proven to have a dual unbounded ray (but not necessary a dual feasible point);
+ *  this does not necessarily mean, that the solver knows and can return the dual ray
+ */
+SCIP_Bool SCIPlpiExistsDualRay(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   assert( lpi != NULL );
+
+   return FALSE;
+}
+
+/** returns TRUE iff LP is proven to have a dual unbounded ray (but not necessary a dual feasible point),
+ *  and the solver knows and can return the dual ray
+ */
+SCIP_Bool SCIPlpiHasDualRay(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   assert( lpi != NULL );
+
+   return FALSE;
+}
+
+/** returns TRUE iff LP is proven to be dual unbounded */
+SCIP_Bool SCIPlpiIsDualUnbounded(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   assert( lpi != NULL );
+
+   return FALSE;
+}
+
+/** returns TRUE iff LP is proven to be dual infeasible */
+SCIP_Bool SCIPlpiIsDualFeasible(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   assert( lpi != NULL );
+
+   return lpi->result->solve_log.termination_reason() != pdlp::TERMINATION_REASON_DUAL_INFEASIBLE &&
+      lpi->result->solve_log.termination_reason() != pdlp::TERMINATION_REASON_PRIMAL_OR_DUAL_INFEASIBLE;
+}
+
+/** returns TRUE iff LP is proven to be dual feasible */
+SCIP_Bool SCIPlpiIsDualInfeasible(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   assert( lpi != NULL );
+
+   return !SCIPlpiIsDualFeasible(lpi);
+}
+
+/** returns TRUE iff LP was solved to optimality */
+SCIP_EXPORT
+SCIP_Bool SCIPlpiIsOptimal(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   return lpi->result->solve_log.termination_reason() == pdlp::TERMINATION_REASON_OPTIMAL;
+}
+
+
+SCIP_EXPORT
+SCIP_Bool SCIPlpiIsStable(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   return SCIPlpiIsOptimal(lpi);
+}
+
+
+/** returns TRUE iff the objective limit was reached */
+SCIP_EXPORT
+SCIP_Bool SCIPlpiIsObjlimExc(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   return FALSE;
+}
+
 /** returns TRUE iff the time limit was reached */
-SCIP_Bool SCIPlpiIsTimelimExc(
+SCIP_Bool SCIPlpiIsIterlimExc(
    SCIP_LPI*             lpi                 /**< LP interface structure */
    )
 {
@@ -806,6 +1356,16 @@ SCIP_Bool SCIPlpiIsTimelimExc(
    assert( lpi->result != NULL );
 
    return lpi->result->solve_log.termination_reason() == pdlp::TERMINATION_REASON_ITERATION_LIMIT;
+}
+
+/** returns TRUE iff the time limit was reached */
+SCIP_Bool SCIPlpiIsTimelimExc(
+   SCIP_LPI*             lpi                 /**< LP interface structure */
+   )
+{
+   assert( lpi != NULL );
+
+   return lpi->result->solve_log.termination_reason() == pdlp::TERMINATION_REASON_TIME_LIMIT;
 }
 
 /** returns the internal solution status of the solver */
@@ -825,7 +1385,6 @@ SCIP_RETCODE SCIPlpiIgnoreInstability(
    )
 {
    assert( lpi != NULL );
-   assert( lpi->solver != NULL );
    assert( success != NULL );
 
    *success = FALSE;
@@ -844,8 +1403,87 @@ SCIP_RETCODE SCIPlpiGetObjval(
 
    // TODO: How do I know which one I want?
    *objval = lpi->result->solve_log.solution_stats().convergence_information()[0].primal_objective();
+   if (lpi->objsen == SCIP_OBJSEN_MAXIMIZE)
+   {
+      *objval = -*objval;
+   }
 
    return SCIP_OKAY;
+}
+
+/** gets primal and dual solution vectors for feasible LPs
+ *
+ *  Before calling this function, the caller must ensure that the LP has been solved to optimality, i.e., that
+ *  SCIPlpiIsOptimal() returns true.
+ */
+SCIP_RETCODE SCIPlpiGetSol(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   SCIP_Real*            objval,             /**< stores the objective value, may be NULL if not needed */
+   SCIP_Real*            primsol,            /**< primal solution vector, may be NULL if not needed */
+   SCIP_Real*            dualsol,            /**< dual solution vector, may be NULL if not needed */
+   SCIP_Real*            activity,           /**< row activity vector, may be NULL if not needed */
+   SCIP_Real*            redcost             /**< reduced cost vector, may be NULL if not needed */
+   )
+{
+   assert( lpi != NULL );
+   assert( lpi->result != NULL );
+
+   SCIPdebugMessage("SCIPlpiGetSol\n");
+   if ( objval != NULL )
+      *objval = lpi->result->solve_log.solution_stats().convergence_information()[0].primal_objective();
+
+   const size_t num_cols = lpi->linear_program->objective_vector.size();
+   for (size_t col = 0; col < num_cols; ++col)
+   {
+      if ( primsol != NULL )
+         primsol[col] = lpi->result->primal_solution(col);
+
+      // I think SCIPlpiGetSol is important to implement
+      if ( redcost != NULL )
+         redcost[col] = lpi->result->reduced_costs(col);
+   }
+
+   const size_t num_rows = lpi->linear_program->constraint_lower_bounds.size();
+   for (size_t row = 0; row < num_rows; ++row)
+   {
+      // TODO: Do I negate this only when solving a mazimization problem?
+      if ( dualsol != NULL )
+      {
+         if (lpi->objsen == SCIP_OBJSEN_MAXIMIZE)
+         {
+            dualsol[row] = -lpi->result->dual_solution(row);
+         }
+         else
+         {
+            dualsol[row] = lpi->result->dual_solution(row);
+         }
+      }
+
+      if ( activity != NULL )
+         return SCIP_NOTIMPLEMENTED;
+   }
+
+   return SCIP_OKAY;
+}
+
+/** gets primal ray for unbounded LPs */
+SCIP_EXPORT
+SCIP_RETCODE SCIPlpiGetPrimalRay(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   SCIP_Real*            ray                 /**< primal ray */
+   )
+{
+   return SCIP_NOTIMPLEMENTED;
+}
+
+/** gets dual Farkas proof for infeasibility */
+SCIP_EXPORT
+SCIP_RETCODE SCIPlpiGetDualfarkas(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   SCIP_Real*            dualfarkas          /**< dual Farkas row multipliers */
+   )
+{
+   return SCIP_NOTIMPLEMENTED;
 }
 
 /** gets the number of LP iterations of the last solve call */
@@ -1004,7 +1642,7 @@ SCIP_RETCODE SCIPlpiSetState(
    BMS_BLKMEM*           blkmem,             /**< block memory */
    const SCIP_LPISTATE*  lpistate            /**< LPi state information (like basis information), or NULL */
    ) {
-   return SCIP_ERROR;
+   return SCIP_OKAY;
 }
 
 /** clears current LPi state (like basis information) of the solver */
@@ -1012,7 +1650,7 @@ SCIP_EXPORT
 SCIP_RETCODE SCIPlpiClearState(
    SCIP_LPI*             lpi                 /**< LP interface structure */
    ) {
-   return SCIP_ERROR;
+   return SCIP_OKAY;
 }
 
 /** frees LPi state information */
@@ -1078,7 +1716,6 @@ SCIP_RETCODE SCIPlpiGetNorms(
 {
    assert( lpi != NULL );
    assert( blkmem != NULL );
-   assert( lpi->solver != NULL );
    assert( lpinorms != NULL );
 
    return SCIP_OKAY;
@@ -1095,7 +1732,6 @@ SCIP_RETCODE SCIPlpiSetNorms(
 {
    assert( lpi != NULL );
    assert( blkmem != NULL );
-   assert( lpi->solver != NULL );
    assert( lpinorms != NULL );
 
    return SCIP_OKAY;
@@ -1110,13 +1746,147 @@ SCIP_RETCODE SCIPlpiFreeNorms(
 {
    assert( lpi != NULL );
    assert( blkmem != NULL );
-   assert( lpi->solver != NULL );
    assert( lpinorms != NULL );
 
    return SCIP_OKAY;
 }
 
 /**@} */
+
+/*
+ * Parameter Methods
+ */
+
+/**@name Parameter Methods */
+/**@{ */
+
+/** gets integer parameter of LP */
+SCIP_RETCODE SCIPlpiGetIntpar(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   SCIP_LPPARAM          type,               /**< parameter number */
+   int*                  ival                /**< buffer to store the parameter value */
+   )
+{
+   assert( lpi != NULL );
+   assert( lpi->parameters != NULL );
+
+   switch ( type )
+   {
+   case SCIP_LPPAR_FROMSCRATCH:
+      *ival = 1;
+      SCIPdebugMessage("SCIPlpiGetIntpar: SCIP_LPPAR_FROMSCRATCH = %d.\n", *ival);
+   case SCIP_LPPAR_LPITLIM:
+      *ival = lpi->parameters->termination_criteria().iteration_limit();
+      SCIPdebugMessage("SCIPlpiGetRealpar: SCIP_LPPAR_LPITLIM = %d.\n", *ival);
+      break;
+   default:
+      return SCIP_PARAMETERUNKNOWN;
+   }
+
+   return SCIP_OKAY;
+}
+
+/** sets integer parameter of LP */
+SCIP_RETCODE SCIPlpiSetIntpar(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   SCIP_LPPARAM          type,               /**< parameter number */
+   int                   ival                /**< parameter value */
+   )
+{
+   assert( lpi != NULL );
+   assert( lpi->parameters != NULL );
+
+   switch ( type )
+   {
+   case SCIP_LPPAR_FROMSCRATCH:
+      // no-op. We always solve from scratch
+      SCIPdebugMessage("SCIPlpiSetIntpar: SCIP_LPPAR_FROMSCRATCH = %d.\n", ival);
+      break;
+   case SCIP_LPPAR_LPITLIM:
+      lpi->parameters->mutable_termination_criteria()->set_iteration_limit(ival);
+      SCIPdebugMessage("SCIPlpiGetRealpar: SCIP_LPPAR_LPITLIM = %d.\n", ival);
+      break;
+   default:
+      return SCIP_PARAMETERUNKNOWN;
+   }
+   return SCIP_OKAY;
+}
+
+/** gets floating point parameter of LP */
+SCIP_RETCODE SCIPlpiGetRealpar(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   SCIP_LPPARAM          type,               /**< parameter number */
+   SCIP_Real*            dval                /**< buffer to store the parameter value */
+   )
+{
+   assert( lpi != NULL );
+   assert( lpi->parameters != NULL );
+
+   /* Not (yet) supported by Glop: SCIP_LPPAR_ROWREPSWITCH, SCIP_LPPAR_BARRIERCONVTOL */
+   switch ( type )
+   {
+   // case SCIP_LPPAR_FEASTOL:
+   //    *dval = lpi->parameters->primal_feasibility_tolerance();
+   //    SCIPdebugMessage("SCIPlpiGetRealpar: SCIP_LPPAR_FEASTOL = %g.\n", *dval);
+   //    break;
+   // case SCIP_LPPAR_DUALFEASTOL:
+   //    *dval = lpi->parameters->dual_feasibility_tolerance();
+   //    SCIPdebugMessage("SCIPlpiGetRealpar: SCIP_LPPAR_DUALFEASTOL = %g.\n", *dval);
+   //    break;
+   case SCIP_LPPAR_BARRIERCONVTOL:
+      *dval = lpi->parameters->termination_criteria().detailed_optimality_criteria().eps_optimal_primal_residual_absolute();
+      SCIPdebugMessage("SCIPlpiGetRealpar: SCIP_LPPAR_BARRIERCONVTOL = %g.\n", *dval);
+      break;
+   case SCIP_LPPAR_LPTILIM:
+      *dval = lpi->parameters->termination_criteria().time_sec_limit();
+      SCIPdebugMessage("SCIPlpiGetRealpar: SCIP_LPPAR_LPTILIM = %f.\n", *dval);
+      break;
+   case SCIP_LPPAR_OBJLIM:
+      SCIPdebugMessage("SCIPlpiSetRealpar: SCIP_LPPAR_OBJLIM -> %f.\n", dval);
+      *dval = SCIPlpiInfinity(lpi);
+      // lpi->parameters->mutable_termination_criteria()->set_time_sec_limit(dval);
+      break;
+   // case SCIP_LPPAR_CONDITIONLIMIT:
+   //    *dval = lpi->conditionlimit;
+   //    break;
+   default:
+      return SCIP_PARAMETERUNKNOWN;
+   }
+
+   return SCIP_OKAY;
+}
+
+/** sets floating point parameter of LP */
+SCIP_RETCODE SCIPlpiSetRealpar(
+   SCIP_LPI*             lpi,                /**< LP interface structure */
+   SCIP_LPPARAM          type,               /**< parameter number */
+   SCIP_Real             dval                /**< parameter value */
+   )
+{
+   assert( lpi != NULL );
+   assert( lpi->parameters != NULL );
+
+   switch( type )
+   {
+   case SCIP_LPPAR_BARRIERCONVTOL:
+      SCIPdebugMessage("SCIPlpiSetRealpar: SCIP_LPPAR_FEASTOL -> %g.\n", dval);
+      lpi->parameters->mutable_termination_criteria()->mutable_detailed_optimality_criteria()->set_eps_optimal_primal_residual_absolute(dval);
+      lpi->parameters->mutable_termination_criteria()->mutable_detailed_optimality_criteria()->set_eps_optimal_dual_residual_absolute(dval);
+      break;
+   case SCIP_LPPAR_LPTILIM:
+      SCIPdebugMessage("SCIPlpiSetRealpar: SCIP_LPPAR_LPTILIM -> %f.\n", dval);
+      lpi->parameters->mutable_termination_criteria()->set_time_sec_limit(dval);
+      break;
+   case SCIP_LPPAR_OBJLIM:
+      SCIPdebugMessage("SCIPlpiSetRealpar: SCIP_LPPAR_OBJLIM -> %f.\n", dval);
+      // lpi->parameters->mutable_termination_criteria()->set_time_sec_limit(dval);
+      break;
+   default:
+      return SCIP_PARAMETERUNKNOWN;
+   }
+
+   return SCIP_OKAY;
+}
 
 
 /*
@@ -1197,7 +1967,7 @@ SCIP_RETCODE SCIPlpiWriteLP(
    absl::StatusOr<operations_research::MPModelProto> mp = pdlp::QpToMpModelProto(*lpi->linear_program);
    CHECK_OK(mp.status());
    const std::string filespec(fname);
-   if ( ! WriteProtoToFile(filespec, *mp, operations_research::ProtoWriteFormat::kProtoText, true) )
+   if ( ! WriteProtoToFile(filespec, *mp, operations_research::ProtoWriteFormat::kProtoText, false) )
    {
       SCIPerrorMessage("Could not write <%s>\n", fname);
       return SCIP_READERROR;
