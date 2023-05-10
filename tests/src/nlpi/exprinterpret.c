@@ -529,7 +529,7 @@ Test(checkad, griewank)
 static SCIP_EXPR* vexprs[DIM];
 static SCIP_Real vvals[DIM];
 static SCIP_Real grad[DIM];
-static SCIP_CLOCK* clock;
+static SCIP_CLOCK* clock_global_scip;
 
 static
 void performance_setup(void)
@@ -549,7 +549,7 @@ void performance_setup(void)
       SCIP_CALL_ABORT( SCIPcreateExprVaridx(scip, &vexprs[i], i, NULL, NULL) );
    }
 
-   SCIP_CALL_ABORT( SCIPcreateCPUClock(scip, &clock) );
+   SCIP_CALL_ABORT( SCIPcreateCPUClock(scip, &clock_global_scip) );
 }
 
 static
@@ -557,7 +557,7 @@ void performance_teardown(void)
 {
    int i;
 
-   SCIP_CALL_ABORT( SCIPfreeClock(scip, &clock) );
+   SCIP_CALL_ABORT( SCIPfreeClock(scip, &clock_global_scip) );
 
    for( i = DIM-1; i >= 0; --i )
    {
@@ -641,43 +641,43 @@ Test(performance, quad)
             printf("\n");
           } */
 
-         SCIPresetClock(scip, clock);
-         SCIPstartClock(scip, clock);
+         SCIPresetClock(scip, clock_global_scip);
+         SCIPstartClock(scip, clock_global_scip);
          SCIP_CALL( SCIPexprintCompile(scip, exprint, expr, &exprintdata) );
-         SCIPstopClock(scip, clock);
-         compiletime += SCIPgetClockTime(scip, clock);
+         SCIPstopClock(scip, clock_global_scip);
+         compiletime += SCIPgetClockTime(scip, clock_global_scip);
 
          if( SCIPexprintGetExprCapability(scip, exprint, expr, exprintdata) & SCIP_EXPRINTCAPABILITY_FUNCVALUE )
          {
-            SCIPresetClock(scip, clock);
-            SCIPstartClock(scip, clock);
+            SCIPresetClock(scip, clock_global_scip);
+            SCIPstartClock(scip, clock_global_scip);
             SCIP_CALL( SCIPexprintEval(scip, exprint, expr, exprintdata, vvals, &val) );
-            SCIPstopClock(scip, clock);
-            evaltime += SCIPgetClockTime(scip, clock);
+            SCIPstopClock(scip, clock_global_scip);
+            evaltime += SCIPgetClockTime(scip, clock_global_scip);
          }
 
          if( SCIPexprintGetExprCapability(scip, exprint, expr, exprintdata) & SCIP_EXPRINTCAPABILITY_GRADIENT )
          {
-            SCIPresetClock(scip, clock);
-            SCIPstartClock(scip, clock);
+            SCIPresetClock(scip, clock_global_scip);
+            SCIPstartClock(scip, clock_global_scip);
             SCIP_CALL( SCIPexprintGrad(scip, exprint, expr, exprintdata, vvals, FALSE, &val, grad) );
-            SCIPstopClock(scip, clock);
-            gradtime += SCIPgetClockTime(scip, clock);
+            SCIPstopClock(scip, clock_global_scip);
+            gradtime += SCIPgetClockTime(scip, clock_global_scip);
          }
 
          if( SCIPexprintGetExprCapability(scip, exprint, expr, exprintdata) & SCIP_EXPRINTCAPABILITY_HESSIAN )
          {
-            SCIPresetClock(scip, clock);
-            SCIPstartClock(scip, clock);
+            SCIPresetClock(scip, clock_global_scip);
+            SCIPstartClock(scip, clock_global_scip);
             SCIP_CALL( SCIPexprintHessianSparsity(scip, exprint, expr, exprintdata, vvals, &rowidxs, &colidxs, &nnz) );
-            SCIPstopClock(scip, clock);
-            hessiansparsitytime += SCIPgetClockTime(scip, clock);
+            SCIPstopClock(scip, clock_global_scip);
+            hessiansparsitytime += SCIPgetClockTime(scip, clock_global_scip);
 
-            SCIPresetClock(scip, clock);
-            SCIPstartClock(scip, clock);
+            SCIPresetClock(scip, clock_global_scip);
+            SCIPstartClock(scip, clock_global_scip);
             SCIP_CALL( SCIPexprintHessian(scip, exprint, expr, exprintdata, vvals, FALSE, &val, &rowidxs, &colidxs, &hessianvals, &nnz) );
-            SCIPstopClock(scip, clock);
-            hessiantime += SCIPgetClockTime(scip, clock);
+            SCIPstopClock(scip, clock_global_scip);
+            hessiantime += SCIPgetClockTime(scip, clock_global_scip);
 
             /* check that Hessian is correct */
             for( i = 0; i < nnz; ++i )
@@ -752,43 +752,43 @@ Test(performance, griewank)
          SCIP_Real* hessianvals;
          int nnz;
 
-         SCIPresetClock(scip, clock);
-         SCIPstartClock(scip, clock);
+         SCIPresetClock(scip, clock_global_scip);
+         SCIPstartClock(scip, clock_global_scip);
          SCIP_CALL( SCIPexprintCompile(scip, exprint, exprsum, &exprintdata) );
-         SCIPstopClock(scip, clock);
-         compiletime += SCIPgetClockTime(scip, clock);
+         SCIPstopClock(scip, clock_global_scip);
+         compiletime += SCIPgetClockTime(scip, clock_global_scip);
 
          if( SCIPexprintGetExprCapability(scip, exprint, exprsum, exprintdata) & SCIP_EXPRINTCAPABILITY_FUNCVALUE )
          {
-            SCIPresetClock(scip, clock);
-            SCIPstartClock(scip, clock);
+            SCIPresetClock(scip, clock_global_scip);
+            SCIPstartClock(scip, clock_global_scip);
             SCIP_CALL( SCIPexprintEval(scip, exprint, exprsum, exprintdata, vvals, &val) );
-            SCIPstopClock(scip, clock);
-            evaltime += SCIPgetClockTime(scip, clock);
+            SCIPstopClock(scip, clock_global_scip);
+            evaltime += SCIPgetClockTime(scip, clock_global_scip);
          }
 
          if( SCIPexprintGetExprCapability(scip, exprint, exprsum, exprintdata) & SCIP_EXPRINTCAPABILITY_GRADIENT )
          {
-            SCIPresetClock(scip, clock);
-            SCIPstartClock(scip, clock);
+            SCIPresetClock(scip, clock_global_scip);
+            SCIPstartClock(scip, clock_global_scip);
             SCIP_CALL( SCIPexprintGrad(scip, exprint, exprsum, exprintdata, vvals, FALSE, &val, grad) );
-            SCIPstopClock(scip, clock);
-            gradtime += SCIPgetClockTime(scip, clock);
+            SCIPstopClock(scip, clock_global_scip);
+            gradtime += SCIPgetClockTime(scip, clock_global_scip);
          }
 
          if( SCIPexprintGetExprCapability(scip, exprint, exprsum, exprintdata) & SCIP_EXPRINTCAPABILITY_HESSIAN )
          {
-            SCIPresetClock(scip, clock);
-            SCIPstartClock(scip, clock);
+            SCIPresetClock(scip, clock_global_scip);
+            SCIPstartClock(scip, clock_global_scip);
             SCIP_CALL( SCIPexprintHessianSparsity(scip, exprint, exprsum, exprintdata, vvals, &rowidxs, &colidxs, &nnz) );
-            SCIPstopClock(scip, clock);
-            hessiansparsitytime += SCIPgetClockTime(scip, clock);
+            SCIPstopClock(scip, clock_global_scip);
+            hessiansparsitytime += SCIPgetClockTime(scip, clock_global_scip);
 
-            SCIPresetClock(scip, clock);
-            SCIPstartClock(scip, clock);
+            SCIPresetClock(scip, clock_global_scip);
+            SCIPstartClock(scip, clock_global_scip);
             SCIP_CALL( SCIPexprintHessian(scip, exprint, exprsum, exprintdata, vvals, FALSE, &val, &rowidxs, &colidxs, &hessianvals, &nnz) );
-            SCIPstopClock(scip, clock);
-            hessiantime += SCIPgetClockTime(scip, clock);
+            SCIPstopClock(scip, clock_global_scip);
+            hessiantime += SCIPgetClockTime(scip, clock_global_scip);
          }
 
          SCIP_CALL( SCIPexprintFreeData(scip, exprint, exprsum, &exprintdata) );
@@ -820,8 +820,8 @@ Test(performance, signpower)
       SCIP_CALL( SCIPreleaseExpr(scip, &term) );
    }
 
-   SCIPresetClock(scip, clock);
-   SCIPstartClock(scip, clock);
+   SCIPresetClock(scip, clock_global_scip);
+   SCIPstartClock(scip, clock_global_scip);
 
    SCIP_CALL( SCIPexprintCompile(scip, exprint, expr, &exprintdata) );
 
@@ -838,7 +838,7 @@ Test(performance, signpower)
       SCIP_CALL( SCIPexprintHessian(scip, exprint, expr, exprintdata, vvals, FALSE, &val, &rowidxs, &colidxs, &hessianvals, &nnz) );
    }
 
-   printf("time: %g\n", SCIPgetClockTime(scip, clock));
+   printf("time: %g\n", SCIPgetClockTime(scip, clock_global_scip));
 
 TERMINATE:
    SCIP_CALL( SCIPexprintFreeData(scip, exprint, expr, &exprintdata) );
@@ -866,8 +866,8 @@ Test(performance, intpower)
       SCIP_CALL( SCIPreleaseExpr(scip, &term) );
    }
 
-   SCIPresetClock(scip, clock);
-   SCIPstartClock(scip, clock);
+   SCIPresetClock(scip, clock_global_scip);
+   SCIPstartClock(scip, clock_global_scip);
 
    SCIP_CALL( SCIPexprintCompile(scip, exprint, expr, &exprintdata) );
 
@@ -884,7 +884,7 @@ Test(performance, intpower)
       SCIP_CALL( SCIPexprintHessian(scip, exprint, expr, exprintdata, vvals, FALSE, &val, &rowidxs, &colidxs, &hessianvals, &nnz) );
    }
 
-   printf("time: %g\n", SCIPgetClockTime(scip, clock));
+   printf("time: %g\n", SCIPgetClockTime(scip, clock_global_scip));
 
 TERMINATE:
    SCIP_CALL( SCIPexprintFreeData(scip, exprint, expr, &exprintdata) );
