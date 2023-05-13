@@ -61,7 +61,7 @@ extern "C" {
 #endif
 
 /** prints an error message */
-#define SCIPerrorMessage                SCIPmessagePrintErrorHeader(__FILENAME__, __LINE__); \
+#define SCIPerrorMessage                SCIPmessagePrintErrorHeader(__FILENAME__, __LINE__, __func__); \
                                         SCIPmessagePrintError
 
 /** define used in blockmemshell/memory.c */
@@ -350,7 +350,8 @@ void SCIPmessageVFPrintVerbInfo(
 SCIP_EXPORT
 void SCIPmessagePrintErrorHeader(
    const char*           sourcefile,         /**< name of the source file that called the function */
-   int                   sourceline          /**< line in the source file where the function was called */
+   int                   sourceline,         /**< line in the source file where the function was called */
+   const char*           func
    );
 
 /** prints an error message, acting like the printf() command using the static message handler */

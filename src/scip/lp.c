@@ -40,6 +40,8 @@
 
 /*---+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8----+----9----+----0----+----1----+----2*/
 
+// #define SCIP_DEBUG
+
 
 #include "lpi/lpi.h"
 #include "scip/clock.h"
@@ -2600,7 +2602,9 @@ SCIP_RETCODE lpCheckIntpar(
       return SCIP_OKAY;
 
    /* check value */
-   assert(lpivalue == value);
+   if (lpivalue != value)
+      return SCIP_ERROR;
+   // assert(lpivalue == value);
 
    return retcode;
 }
@@ -9078,6 +9082,7 @@ void freeDiveChgSideArrays(
 
 #define DIVESTACKINITSIZE 100
 
+// So I need to set my values appropriately *before* SCIPlpCreate runs!
 /** creates empty LP data object */
 SCIP_RETCODE SCIPlpCreate(
    SCIP_LP**             lp,                 /**< pointer to LP data object */
@@ -12118,8 +12123,10 @@ SCIP_RETCODE lpSolve(
       /* if we did not disable the cutoff bound in the LP solver, the LP solution status should be objective limit
        * reached if the LP objective value is greater than the cutoff bound
        */
-      assert(lpCutoffDisabled(set, prob) || lp->lpsolstat == SCIP_LPSOLSTAT_OBJLIMIT || SCIPsetIsInfinity(set, lp->cutoffbound)
-         || SCIPsetIsLE(set, lp->lpobjval + getFiniteLooseObjval(lp, set, prob), lp->cutoffbound));
+      assert(lpCutoffDisabled(set, prob) ||
+             lp->lpsolstat == SCIP_LPSOLSTAT_OBJLIMIT ||
+             SCIPsetIsInfinity(set, lp->cutoffbound) ||
+             SCIPsetIsLE(set, lp->lpobjval + getFiniteLooseObjval(lp, set, prob), lp->cutoffbound));
    }
    else if( SCIPlpiIsObjlimExc(lp->lpi) )
    {
@@ -12212,6 +12219,7 @@ SCIP_RETCODE lpSolve(
    return SCIP_OKAY;
 }
 
+// hmm... does this mean that it requires
 /** flushes the LP and solves it with the primal or dual simplex algorithm, depending on the current basis feasibility */
 static
 SCIP_RETCODE lpFlushAndSolve(
@@ -12249,6 +12257,7 @@ SCIP_RETCODE lpFlushAndSolve(
    /* select LP algorithm to apply */
    resolve = lp->solisbasic && (lp->dualfeasible || lp->primalfeasible) && !fromscratch;
    algo = resolve ? set->lp_resolvealgorithm : set->lp_initalgorithm;
+   // printf("GALVEZ:Algorithm=%c %c\n", set->lp_resolvealgorithm, set->lp_initalgorithm);
 
    switch( algo )
    {
@@ -12280,6 +12289,7 @@ SCIP_RETCODE lpFlushAndSolve(
             needdualray, resolve, fastmip, tightprimfeastol, tightdualfeastol, fromscratch, scaling, keepsol, lperror) );
       break;
 
+      // okay, so what we need is to do this one...
    case 'b':
       SCIPsetDebugMsg(set, "solving barrier LP\n");
       SCIP_CALL( lpSolve(lp, set, messagehdlr, stat, prob, SCIP_LPALGO_BARRIER, resolveitlim, harditlim, needprimalray,

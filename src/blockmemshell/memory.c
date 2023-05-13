@@ -237,7 +237,7 @@ void removeMemlistEntry(
    }
    else
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to free unknown pointer <%p>.\n", ptr);
    }
    checkMemlist();
@@ -364,7 +364,7 @@ void* BMSallocClearMemory_call(
 #ifndef NDEBUG
    if ( num > (MAXMEMSIZE / typesize) )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate standard memory of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -376,7 +376,7 @@ void* BMSallocClearMemory_call(
 
    if( ptr == NULL )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Insufficient memory for allocation of %llu bytes.\n", (unsigned long long)(num) * (typesize));
    }
    else
@@ -399,7 +399,7 @@ void* BMSallocMemory_call(
 #ifndef NDEBUG
    if ( size > MAXMEMSIZE )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate standard memory of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -410,7 +410,7 @@ void* BMSallocMemory_call(
 
    if( ptr == NULL )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Insufficient memory for allocation of %llu bytes.\n", (unsigned long long)size);
    }
    else
@@ -436,7 +436,7 @@ void* BMSallocMemoryArray_call(
 #ifndef NDEBUG
    if ( num > (MAXMEMSIZE / typesize) )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate standard memory of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -448,7 +448,7 @@ void* BMSallocMemoryArray_call(
 
    if( ptr == NULL )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Insufficient memory for allocation of %llu bytes.\n", (unsigned long long)size);
    }
    else
@@ -473,7 +473,7 @@ void* BMSreallocMemory_call(
 #ifndef NDEBUG
    if ( size > MAXMEMSIZE )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate standard memory of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -484,7 +484,7 @@ void* BMSreallocMemory_call(
 
    if( newptr == NULL )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Insufficient memory for reallocation of %llu bytes.\n", (unsigned long long)size);
    }
    else
@@ -511,7 +511,7 @@ void* BMSreallocMemoryArray_call(
 #ifndef NDEBUG
    if ( num > (MAXMEMSIZE / typesize) )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate standard memory of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -523,7 +523,7 @@ void* BMSreallocMemoryArray_call(
 
    if( newptr == NULL )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Insufficient memory for reallocation of %llu bytes.\n", (unsigned long long)size);
    }
    else
@@ -633,7 +633,7 @@ void BMSfreeMemory_call(
    }
    else
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to free null pointer.\n");
    }
 }
@@ -1438,7 +1438,7 @@ void freeChkmemElement(
    /* check, if ptr belongs to the chunk block */
    if( !isPtrInChkmem(chkmem, ptr) )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Pointer %p does not belong to chunk block %p (size: %d).\n", ptr, chkmem, chkmem->elemsize);
    }
 #endif
@@ -1475,7 +1475,7 @@ BMS_CHKMEM* BMScreateChunkMemory_call(
    chkmem = createChkmem((int) size, initchunksize, garbagefactor, NULL);
    if( chkmem == NULL )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Insufficient memory for chunk block.\n");
    }
    debugMessage("created chunk memory %p [elemsize: %d]\n", (void*)chkmem, (int)size);
@@ -1496,7 +1496,7 @@ void BMSclearChunkMemory_call(
       clearChkmem(chkmem, NULL);
    else
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to clear null chunk block.\n");
    }
 }
@@ -1516,7 +1516,7 @@ void BMSdestroyChunkMemory_call(
       destroyChkmem(chkmem, NULL);
    else
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to destroy null chunk block.\n");
    }
 }
@@ -1538,7 +1538,7 @@ void* BMSallocChunkMemory_call(
    ptr = allocChkmemElement(chkmem, NULL);
    if( ptr == NULL )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Insufficient memory for new chunk.\n");
    }
    debugMessage("alloced %8llu bytes in %p [%s:%d]\n", (unsigned long long)size, (void*)ptr, filename, line);
@@ -1594,7 +1594,7 @@ void BMSfreeChunkMemory_call(
    }
    else
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to free null chunk pointer.\n");
    }
 }
@@ -1758,7 +1758,7 @@ BMS_BLKMEM* BMScreateBlockMemory_call(
    }
    else
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Insufficient memory for block memory header.\n");
    }
 
@@ -1794,7 +1794,7 @@ void BMSclearBlockMemory_call(
    }
    else
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to clear null block memory.\n");
    }
 }
@@ -1816,7 +1816,7 @@ void BMSdestroyBlockMemory_call(
    }
    else
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to destroy null block memory.\n");
    }
 }
@@ -1851,7 +1851,7 @@ void* BMSallocBlockMemory_work(
       *chkmemptr = createChkmem((int)size, blkmem->initchunksize, blkmem->garbagefactor, &blkmem->memallocated);
       if( *chkmemptr == NULL )
       {
-         printErrorHeader(filename, line);
+         printErrorHeader(filename, line, __func__);
          printError("Insufficient memory for chunk block.\n");
          return NULL;
       }
@@ -1866,7 +1866,7 @@ void* BMSallocBlockMemory_work(
 
    if( ptr == NULL )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Insufficient memory for new chunk.\n");
    }
    debugMessage("alloced %8llu bytes in %p [%s:%d]\n", (unsigned long long)size, ptr, filename, line);
@@ -1896,7 +1896,7 @@ void* BMSallocBlockMemory_call(
 #ifndef NDEBUG
    if ( size > MAXMEMSIZE )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate block of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -1934,7 +1934,7 @@ void* BMSallocBlockMemoryArray_call(
 #ifndef NDEBUG
    if ( num > (MAXMEMSIZE / typesize) )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate block of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -1982,7 +1982,7 @@ void* BMSreallocBlockMemory_call(
 #ifndef NDEBUG
    if ( newsize > MAXMEMSIZE )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate block of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -2023,7 +2023,7 @@ void* BMSreallocBlockMemoryArray_call(
 #ifndef NDEBUG
    if ( newnum > (MAXMEMSIZE / typesize) )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate array of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -2110,7 +2110,7 @@ void BMSfreeBlockMemory_work(
       chkmem = chkmem->nextchkmem;
    if( chkmem == NULL )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to free pointer <%p> in block memory <%p> of unknown size %llu.\n", *ptr, (void*)blkmem, (unsigned long long)size);
       return;
    }
@@ -2146,7 +2146,7 @@ void BMSfreeBlockMemory_call(
       BMSfreeBlockMemory_work(blkmem, ptr, size, filename, line);
    else if( size != 0 )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to free null block pointer.\n");
    }
    checkBlkmem(blkmem);
@@ -2534,7 +2534,7 @@ BMS_BUFMEM* BMScreateBufferMemory_call(
    }
    else
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Insufficient memory for buffer memory header.\n");
    }
 
@@ -2569,7 +2569,7 @@ void BMSdestroyBufferMemory_call(
    }
    else
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to free null buffer memory.\n");
    }
 }
@@ -2678,21 +2678,21 @@ void* BMSallocBufferMemory_work(
       BMSreallocMemoryArray(&buffer->data, newsize);
       if ( buffer->data == NULL )
       {
-         printErrorHeader(filename, line);
+         printErrorHeader(filename, line, __func__);
          printError("Insufficient memory for reallocating buffer data storage.\n");
          return NULL;
       }
       BMSreallocMemoryArray(&buffer->size, newsize);
       if ( buffer->size == NULL )
       {
-         printErrorHeader(filename, line);
+         printErrorHeader(filename, line, __func__);
          printError("Insufficient memory for reallocating buffer size storage.\n");
          return NULL;
       }
       BMSreallocMemoryArray(&buffer->used, newsize);
       if ( buffer->used == NULL )
       {
-         printErrorHeader(filename, line);
+         printErrorHeader(filename, line, __func__);
          printError("Insufficient memory for reallocating buffer used storage.\n");
          return NULL;
       }
@@ -2734,7 +2734,7 @@ void* BMSallocBufferMemory_work(
 
       if ( buffer->data[bufnum] == NULL )
       {
-         printErrorHeader(filename, line);
+         printErrorHeader(filename, line, __func__);
          printError("Insufficient memory for reallocating buffer storage.\n");
          return NULL;
       }
@@ -2790,7 +2790,7 @@ void* BMSallocBufferMemory_call(
 #ifndef NDEBUG
    if ( size > MAXMEMSIZE )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate buffer of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -2811,7 +2811,7 @@ void* BMSallocBufferMemoryArray_call(
 #ifndef NDEBUG
    if ( num > (MAXMEMSIZE / typesize) )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate buffer of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -2890,7 +2890,7 @@ void* BMSreallocBufferMemory_work(
       buffer->size[bufnum] = newsize;
       if ( buffer->data[bufnum] == NULL )
       {
-         printErrorHeader(filename, line);
+         printErrorHeader(filename, line, __func__);
          printError("Insufficient memory for reallocating buffer storage.\n");
          return NULL;
       }
@@ -2923,7 +2923,7 @@ void* BMSreallocBufferMemory_call(
 #ifndef NDEBUG
    if ( size > MAXMEMSIZE )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate buffer of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -2945,7 +2945,7 @@ void* BMSreallocBufferMemoryArray_call(
 #ifndef NDEBUG
    if ( num > (MAXMEMSIZE / typesize) )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to allocate array of size exceeding %lu.\n", MAXMEMSIZE);
       return NULL;
    }
@@ -3036,13 +3036,13 @@ void BMSfreeBufferMemory_work(
 #ifndef NDEBUG
    if ( bufnum == 0 && buffer->data[bufnum] != *ptr )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to free unkown buffer pointer.\n");
       return;
    }
    if ( ! buffer->used[bufnum] )
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to free buffer pointer already freed.\n");
       return;
    }
@@ -3088,7 +3088,7 @@ void BMSfreeBufferMemory_call(
       BMSfreeBufferMemory_work(buffer, ptr, filename, line);
    else
    {
-      printErrorHeader(filename, line);
+      printErrorHeader(filename, line, __func__);
       printError("Tried to free null buffer pointer.\n");
    }
 #else

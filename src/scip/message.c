@@ -776,13 +776,14 @@ void SCIPmessageVFPrintVerbInfo(
 /** prints the header with source file location for an error message using the static message handler */
 void SCIPmessagePrintErrorHeader(
    const char*           sourcefile,         /**< name of the source file that called the function */
-   int                   sourceline          /**< line in the source file where the function was called */
+   int                   sourceline,         /**< line in the source file where the function was called */
+   const char*           func
    )
 {
    char msg[SCIP_MAXSTRLEN];
 
    /* safe string printing - do not use SCIPsnprintf() since message.c should be independent */
-   (void) snprintf(msg, SCIP_MAXSTRLEN, "[%s:%d] ERROR: ", sourcefile, sourceline);
+   (void) snprintf(msg, SCIP_MAXSTRLEN, "[%s:%d %s] ERROR: ", sourcefile, sourceline, func);
    msg[SCIP_MAXSTRLEN-1] = '\0';
    messagePrintError(NULL, msg);
 }

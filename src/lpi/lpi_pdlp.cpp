@@ -30,6 +30,7 @@ struct SCIP_LPi
    pdlp::SolverResult *result;
    SCIP_Bool lp_modified_since_last_solve;
    SCIP_OBJSEN objsen;
+   SCIP_Bool from_scratch;
    // TODO: Do we need scaling
 };
 
@@ -1773,8 +1774,9 @@ SCIP_RETCODE SCIPlpiGetIntpar(
    switch ( type )
    {
    case SCIP_LPPAR_FROMSCRATCH:
-      *ival = 1;
+      *ival = lpi->from_scratch;
       SCIPdebugMessage("SCIPlpiGetIntpar: SCIP_LPPAR_FROMSCRATCH = %d.\n", *ival);
+      break;
    case SCIP_LPPAR_LPITLIM:
       *ival = lpi->parameters->termination_criteria().iteration_limit();
       SCIPdebugMessage("SCIPlpiGetRealpar: SCIP_LPPAR_LPITLIM = %d.\n", *ival);
@@ -1800,6 +1802,7 @@ SCIP_RETCODE SCIPlpiSetIntpar(
    {
    case SCIP_LPPAR_FROMSCRATCH:
       // no-op. We always solve from scratch
+      lpi->from_scratch = ival;
       SCIPdebugMessage("SCIPlpiSetIntpar: SCIP_LPPAR_FROMSCRATCH = %d.\n", ival);
       break;
    case SCIP_LPPAR_LPITLIM:
