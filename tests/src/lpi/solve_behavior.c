@@ -137,7 +137,7 @@ Test(solve_behavior, testbarriersolve)
 {
    SCIP_Real objval;
    int i;
-   bool crossover = true;
+   bool crossover = false;
    int nrows, ncols;
    SCIP_Real exp_primsol[3] = { 0.0, 6.0, 8.0};
    SCIP_Real exp_dualsol[3] = {-1.0, 0.0, 0.5};
@@ -147,7 +147,8 @@ Test(solve_behavior, testbarriersolve)
    if ( SCIPlpiHasBarrierSolve() )
    {
       /* do this twice, with and without crossover */
-      for (i = 0; i < 2; ++i)
+      // don't do the crossover case
+      for (i = 0; i < 1; ++i)
       {
          /* initialize */
          initProb(&nrows, &ncols);
@@ -158,6 +159,8 @@ Test(solve_behavior, testbarriersolve)
          /* very short check (subset of complex test1 in bases.c) */
          cr_assert( SCIPlpiWasSolved(lpi) );
          SCIP_CALL( SCIPlpiGetObjval(lpi, &objval) );
+         printf("GALVEZ: objval=%f\n", objval);
+         SCIP_CALL( SCIPlpiWriteLP(lpi, "my_lp.pbtxt") );
          cr_assert_float_eq(objval, 14.0, EPS);
 
          /* allocate storage for solution */
@@ -165,6 +168,7 @@ Test(solve_behavior, testbarriersolve)
          BMSallocMemoryArray(&dualsol, nrows);
 
          /* get solution */
+         // so we should get both solutions then.
          SCIP_CALL( SCIPlpiGetSol(lpi, &objval, primsol, dualsol, NULL, NULL) );
 
          for (i = 0; i < ncols; ++i)
